@@ -736,11 +736,7 @@ Your research idea:\n\n
             stage_number=stage_number,
         )
 
-    def _ask_human_for_feedback(self, completed_main_stage_name):
-        # for debugging
-        # self.current_stage.name = "2_baseline_tuning_1_first_attempt"
-        # self._load_checkpoint()
-        
+    def _ask_human_for_feedback(self, completed_main_stage_name):       
         # 1. Make summary for current stage on the fly
         overall_summarize(self.cfg.log_dir, list(self.journals.items()))
 
@@ -774,24 +770,6 @@ Your research idea:\n\n
                 structured_feedback[key] = goal_modifications
             elif key == "parameter_suggestions" and response.strip(): # If user provides input
                 structured_feedback[key] = response.strip()
-
-#         structured_feedback = {}
-#         structured_feedback["general_comments"] = """While your results are promising, there are several opportunities to strengthen your analysis and expand your understanding of the underlying mechanisms. 
-# Your current analysis lacks insight into why smaller input dimensions perform better. You haven't explored the impact of different regularization weights, which is crucial for understanding the method's sensitivity.
-
-# Consider investigating how your compositional regularization interacts with other inductive biases. 
-# Could you combine it with modular architectures or attention mechanisms specifically designed for compositionality? Additionally, exploring the theoretical foundations of why certain input dimensions facilitate compositional learning could lead to principled design guidelines for neural architectures.
-
-# Your work shows strong potential for contributing to our understanding of compositional generalization in neural networks. 
-# The key is to now deepen the analysis to understand the underlying mechanisms while expanding to more challenging and realistic scenarios."""
-#         structured_feedback["add_experiments"] = """Systematically vary the compositional regularization weight (λ) across a range like [0.001, 0.01, 0.1, 1.0, 10.0] for input dimension 5. 
-# Implement gradient flow analysis to understand how the compositional regularization term affects the optimization landscape. This could reveal why certain input dimensions struggle with stability."""
-#         structured_feedback["modify_goals"] = """Achieve >80% validation accuracy on input dimension 5 while maintaining stability, and establish a mechanistic understanding of why this configuration works best."""
-#         structured_feedback["parameter_suggestions"] = """For higher input dimensions, experiment with:
-# - Dropout rates: [0.1, 0.3, 0.5]
-# - Hidden layer sizes that scale with input dimension: hidden_size = input_dim × 32
-# - Batch normalization after each linear layer
-# """
 
         self.human_feedback_for_next_stage = structured_feedback
 
