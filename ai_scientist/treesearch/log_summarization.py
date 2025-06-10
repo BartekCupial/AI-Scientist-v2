@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+from pathlib import Path
 
 import openai
 
@@ -294,7 +295,7 @@ def annotate_history(journal):
             node.overall_plan = node.plan
 
 
-def overall_summarize(journals):
+def overall_summarize(log_dir, journals):
     from concurrent.futures import ThreadPoolExecutor
 
     def process_stage(idx, stage_tuple):
@@ -349,9 +350,37 @@ def overall_summarize(journals):
                 total=len(list(journals)),
             )
         )
-        draft_summary, baseline_summary, research_summary, ablation_summary = results
+        draft_summary = results[0] if len(results) > 0 else None
+        baseline_summary = results[1] if len(results) > 1 else None
+        research_summary = results[2] if len(results) > 2 else None
+        ablation_summary = results[3] if len(results) > 3 else None
 
-    return draft_summary, baseline_summary, research_summary, ablation_summary
+    draft_summary_path = log_dir / "draft_summary.json"
+    baseline_summary_path = log_dir / "baseline_summary.json"
+    research_summary_path = log_dir / "research_summary.json"
+    ablation_summary_path = log_dir / "ablation_summary.json"
+
+    print(f"Summary reports written to files:")
+
+    if draft_summary is not None:
+        with open(draft_summary_path, "w") as draft_file:
+            json.dump(draft_summary, draft_file, indent=2)
+        print(f"- Draft summary: {draft_summary_path}")
+
+    if baseline_summary is not None:
+        with open(baseline_summary_path, "w") as baseline_file:
+            json.dump(baseline_summary, baseline_file, indent=2)
+        print(f"- Baseline summary: {baseline_summary_path}")
+
+    if research_summary is not None:
+        with open(research_summary_path, "w") as research_file:
+            json.dump(research_summary, research_file, indent=2)
+        print(f"- Research summary: {research_summary_path}")
+
+    if ablation_summary is not None:
+        with open(ablation_summary_path, "w") as ablation_file:
+            json.dump(ablation_summary, ablation_file, indent=2)
+        print(f"- Ablation summary: {ablation_summary_path}")
 
 
 if __name__ == "__main__":
@@ -414,32 +443,5 @@ if __name__ == "__main__":
         journals.append((stage_name, journal))
 
     # Convert manager journals to list of (stage_name, journal) tuples
-    (
-        draft_summary,
-        baseline_summary,
-        research_summary,
-        ablation_summary,
-    ) = overall_summarize(journals)
-    log_dir = "logs/247-run"
-    draft_summary_path = log_dir + "/draft_summary.json"
-    baseline_summary_path = log_dir + "/baseline_summary.json"
-    research_summary_path = log_dir + "/research_summary.json"
-    ablation_summary_path = log_dir + "/ablation_summary.json"
-
-    with open(draft_summary_path, "w") as draft_file:
-        json.dump(draft_summary, draft_file, indent=2)
-
-    with open(baseline_summary_path, "w") as baseline_file:
-        json.dump(baseline_summary, baseline_file, indent=2)
-
-    with open(research_summary_path, "w") as research_file:
-        json.dump(research_summary, research_file, indent=2)
-
-    with open(ablation_summary_path, "w") as ablation_file:
-        json.dump(ablation_summary, ablation_file, indent=2)
-
-    print(f"Summary reports written to files:")
-    print(f"- Draft summary: {draft_summary_path}")
-    print(f"- Baseline summary: {baseline_summary_path}")
-    print(f"- Research summary: {research_summary_path}")
-    print(f"- Ablation summary: {ablation_summary_path}")
+    log_dir = Path("logs/247-run")
+    overall_summarize(log_dir, journals)

@@ -212,34 +212,7 @@ def perform_experiments_bfts(config_path: str):
 
     if cfg.generate_report:
         print("Generating final report from all stages...")
-        (
-            draft_summary,
-            baseline_summary,
-            research_summary,
-            ablation_summary,
-        ) = overall_summarize(manager.journals.items())
-        draft_summary_path = cfg.log_dir / "draft_summary.json"
-        baseline_summary_path = cfg.log_dir / "baseline_summary.json"
-        research_summary_path = cfg.log_dir / "research_summary.json"
-        ablation_summary_path = cfg.log_dir / "ablation_summary.json"
-
-        with open(draft_summary_path, "w") as draft_file:
-            json.dump(draft_summary, draft_file, indent=2)
-
-        with open(baseline_summary_path, "w") as baseline_file:
-            json.dump(baseline_summary, baseline_file, indent=2)
-
-        with open(research_summary_path, "w") as research_file:
-            json.dump(research_summary, research_file, indent=2)
-
-        with open(ablation_summary_path, "w") as ablation_file:
-            json.dump(ablation_summary, ablation_file, indent=2)
-
-        print(f"Summary reports written to files:")
-        print(f"- Draft summary: {draft_summary_path}")
-        print(f"- Baseline summary: {baseline_summary_path}")
-        print(f"- Research summary: {research_summary_path}")
-        print(f"- Ablation summary: {ablation_summary_path}")
+        overall_summarize(cfg.log_dir, manager.journals.items())
 
 
 if __name__ == "__main__":

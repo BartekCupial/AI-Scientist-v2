@@ -13,6 +13,9 @@ import json
 from rich import print
 from .utils.serialize import parse_markdown_to_dict
 from .utils.metric import WorstMetricValue
+from .log_summarization import overall_summarize
+from ..lab_notebook import create_lab_notebook
+from ai_scientist.perform_plotting import aggregate_plots
 
 
 logger = logging.getLogger(__name__)
@@ -133,6 +136,7 @@ class AgentManager:
             if k not in self.task_desc.keys():
                 raise ValueError(f"Key {k} not found in task_desc")
         self.cfg = cfg
+        self.idea_dir = workspace_dir.parent
         self.workspace_dir = workspace_dir
         self.current_stage_number = 0
         self.stages: List[Stage] = []
@@ -165,6 +169,8 @@ class AgentManager:
                 - Conduct systematic component analysis that reveals the contribution of each part
                 - Use the same datasets you used from the previous stage""",
         }
+        self.human_feedback_for_next_stage = None
+
         # Create initial stage
         self._create_initial_stage()
 
@@ -245,6 +251,32 @@ Your research idea:\n\n
             task_desc += "Risk Factors and Limitations: " + risk_factors_str + "\n"
 
         return task_desc
+
+    def _load_checkpoint(self):
+        """Load the experiment state from a checkpoint file"""
+        stage_name = "stage_" + self.current_stage.name
+        save_path = (
+            Path(self.workspace_dir).parent
+            / "logs"
+            / Path(self.workspace_dir).name
+            / stage_name
+            / "checkpoint.pkl"
+        )
+        if not save_path.exists():
+            logger.warning(f"Checkpoint file {save_path} does not exist")
+            return
+
+        with open(save_path, "rb") as f:
+            checkpoint = pickle.load(f)
+
+        self.journals = checkpoint["journals"]
+        self.stage_history = checkpoint["stage_history"]
+        self.task_desc = checkpoint["task_desc"]
+        self.cfg = checkpoint["cfg"]
+        self.workspace_dir = checkpoint["workspace_dir"]
+        self.current_stage = checkpoint["current_stage"]
+
+        print("Checkpoint loaded successfully")
 
     def _save_checkpoint(self):
         """Save the current state of the experiment"""
@@ -680,6 +712,21 @@ Your research idea:\n\n
         description = f"first_attempt"
         main_stage_goal = self.main_stage_goals[main_stage_num + 1]
 
+        if self.human_feedback_for_next_stage:
+            feedback_general_comments = self.human_feedback_for_next_stage.get("general_comments")
+            feedback_goal_modifications = self.human_feedback_for_next_stage.get("modify_goals")
+            feedback_add_experiments = self.human_feedback_for_next_stage.get("add_experiments")
+            feedback_parameter_suggestions = self.human_feedback_for_next_stage.get("parameter_suggestions")
+            
+            if feedback_general_comments:
+                main_stage_goal += f"\n\n--- Supervisor Feedback (General) ---\n{feedback_general_comments}\n------------------------------------"
+            if feedback_goal_modifications:
+                 main_stage_goal += f"\n\n--- Supervisor Goal Modifications ---\n{feedback_goal_modifications}\n---------------------------------"
+            if feedback_add_experiments:
+                main_stage_goal += f"\n\n--- Supervisor Suggested Experiments ---\n{feedback_add_experiments}\n---------------------------------"
+            if feedback_parameter_suggestions:
+                main_stage_goal += f"\n\n--- Supervisor Parameter Suggestions ---\n{feedback_parameter_suggestions}\n---------------------------------"
+            
         return Stage(
             name=f"{main_stage_num + 1}_{next_main_stage_name}_{sub_stage_num}_{sub_stage_name}",
             description=description,
@@ -688,6 +735,65 @@ Your research idea:\n\n
             num_drafts=num_drafts,
             stage_number=stage_number,
         )
+
+    def _ask_human_for_feedback(self, completed_main_stage_name):
+        # for debugging
+        # self.current_stage.name = "2_baseline_tuning_1_first_attempt"
+        # self._load_checkpoint()
+        
+        # 1. Make summary for current stage on the fly
+        overall_summarize(self.cfg.log_dir, list(self.journals.items()))
+
+        # 2. Aggregate plots we managed to collect for now
+        aggregate_plots(base_folder=self.idea_dir, model="o3-mini-2025-01-31")
+
+        # 3. Generate lab notebook for the human supervisor
+        create_lab_notebook(self.idea_dir)
+
+        # 4. Prompting human for feedback via console/UI
+        print(f"\n--- HUMAN FEEDBACK REQUEST for {completed_main_stage_name.upper()} ---")
+        feedback_text = input("Provide general comments or suggestions for the next stage (or press Enter to skip):\n> ")
+
+        specific_questions = {
+            "add_experiments": "Do you want to suggest new specific experiments? (yes/no): ",
+            "modify_goals": "Should the goals for the next main stage be modified? (yes/no): ",
+            "parameter_suggestions": "Any specific hyperparameter ranges or values to try next? (e.g., lr:0.001-0.01): "
+        }
+
+        structured_feedback = {}
+        if feedback_text:
+            structured_feedback["general_comments"] = feedback_text
+
+        for key, question in specific_questions.items():
+            response = input(question).lower()
+            if key == "add_experiments" and response == "yes":
+                exp_details = input("Describe the new experiment(s) to add: ")
+                structured_feedback[key] = exp_details
+            elif key == "modify_goals" and response == "yes":
+                goal_modifications = input("Describe the goal modifications: ")
+                structured_feedback[key] = goal_modifications
+            elif key == "parameter_suggestions" and response.strip(): # If user provides input
+                structured_feedback[key] = response.strip()
+
+#         structured_feedback = {}
+#         structured_feedback["general_comments"] = """While your results are promising, there are several opportunities to strengthen your analysis and expand your understanding of the underlying mechanisms. 
+# Your current analysis lacks insight into why smaller input dimensions perform better. You haven't explored the impact of different regularization weights, which is crucial for understanding the method's sensitivity.
+
+# Consider investigating how your compositional regularization interacts with other inductive biases. 
+# Could you combine it with modular architectures or attention mechanisms specifically designed for compositionality? Additionally, exploring the theoretical foundations of why certain input dimensions facilitate compositional learning could lead to principled design guidelines for neural architectures.
+
+# Your work shows strong potential for contributing to our understanding of compositional generalization in neural networks. 
+# The key is to now deepen the analysis to understand the underlying mechanisms while expanding to more challenging and realistic scenarios."""
+#         structured_feedback["add_experiments"] = """Systematically vary the compositional regularization weight (λ) across a range like [0.001, 0.01, 0.1, 1.0, 10.0] for input dimension 5. 
+# Implement gradient flow analysis to understand how the compositional regularization term affects the optimization landscape. This could reveal why certain input dimensions struggle with stability."""
+#         structured_feedback["modify_goals"] = """Achieve >80% validation accuracy on input dimension 5 while maintaining stability, and establish a mechanistic understanding of why this configuration works best."""
+#         structured_feedback["parameter_suggestions"] = """For higher input dimensions, experiment with:
+# - Dropout rates: [0.1, 0.3, 0.5]
+# - Hidden layer sizes that scale with input dimension: hidden_size = input_dim × 32
+# - Batch normalization after each linear layer
+# """
+
+        self.human_feedback_for_next_stage = structured_feedback
 
     def run(self, exec_callback, step_callback=None):
         """Run the experiment through generated stages"""
@@ -803,6 +909,13 @@ Your research idea:\n\n
                                 current_substage = None
                             break
             self._save_checkpoint()
+
+            # ask for feedback before moving to the next main stage
+            current_main_stage_number = self.parse_stage_names(self.current_stage.name)[0]
+            current_main_stage_name_key = self.main_stage_dict.get(current_main_stage_number)          
+            if current_main_stage_name_key in ["baseline_tuning", "creative_research", "ablation_studies"]:
+                self._ask_human_for_feedback(current_main_stage_name_key)
+
             # Main stage complete - create next main stage
             if self.current_stage:
                 next_main_stage = self._create_next_main_stage(
