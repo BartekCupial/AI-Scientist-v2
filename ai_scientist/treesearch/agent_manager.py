@@ -103,6 +103,34 @@ stage_completion_eval_spec = FunctionSpec(
 )
 
 
+parse_human_feedback_spec = FunctionSpec(
+    name="parse_human_feedback",
+    description="Parses unstructured human feedback into structured categories for the next research stage.",
+    json_schema={
+        "type": "object",
+        "properties": {
+            "general_comments": {
+                "type": "string",
+                "description": "General summary of the supervisor's feedback and suggestions for the next stage.",
+            },
+            "add_experiments": {
+                "type": "string",
+                "description": "Specific new experiments or experimental paths suggested by the supervisor.",
+            },
+            "modify_goals": {
+                "type": "string",
+                "description": "Specific modifications to the goals for the next main stage.",
+            },
+            "parameter_suggestions": {
+                "type": "string",
+                "description": "Specific hyperparameter ranges or values to try next (e.g., 'lr:0.001-0.01').",
+            },
+        },
+        "required": [],
+    },
+)
+
+
 @dataclass
 class Stage:
     name: str
@@ -748,30 +776,42 @@ Your research idea:\n\n
 
         # 4. Prompting human for feedback via console/UI
         print(f"\n--- HUMAN FEEDBACK REQUEST for {completed_main_stage_name.upper()} ---")
-        feedback_text = input("Provide general comments or suggestions for the next stage (or press Enter to skip):\n> ")
+        feedback_text = input(
+            "Please provide your feedback for the next stage. "
+            "You can comment on goals, suggest new experiments, or specify hyperparameters "
+            "(press Enter to skip):\n> "
+        )
+        
+        if not feedback_text.strip():
+            self.human_feedback_for_next_stage = None
+            return
+        
+        system_prompt = (
+            "You are an expert research assistant. Your task is to parse the following free-form "
+            "feedback from a human supervisor and structure it into distinct categories. "
+            "Extract suggestions for new experiments, modifications to goals, and specific "
+            "hyperparameter settings. Also, capture any general comments."
+        )
 
-        specific_questions = {
-            "add_experiments": "Do you want to suggest new specific experiments? (yes/no): ",
-            "modify_goals": "Should the goals for the next main stage be modified? (yes/no): ",
-            "parameter_suggestions": "Any specific hyperparameter ranges or values to try next? (e.g., lr:0.001-0.01): "
-        }
+        try:
+            # 5. Use an LLM to parse the free-form feedback into a structured dictionary
+            structured_feedback = query(
+                system_message=system_prompt,
+                user_message=feedback_text,
+                func_spec=parse_human_feedback_spec,
+                model=self.cfg.agent.feedback.model,
+                temperature=self.cfg.agent.feedback.temp,
+            )
+            # Filter out any keys that have empty values before storing
+            self.human_feedback_for_next_stage = {
+                k: v for k, v in structured_feedback.items() if v
+            }
+            print("\n[green]Feedback successfully parsed by LLM.[/green]")
 
-        structured_feedback = {}
-        if feedback_text:
-            structured_feedback["general_comments"] = feedback_text
-
-        for key, question in specific_questions.items():
-            response = input(question).lower()
-            if key == "add_experiments" and response == "yes":
-                exp_details = input("Describe the new experiment(s) to add: ")
-                structured_feedback[key] = exp_details
-            elif key == "modify_goals" and response == "yes":
-                goal_modifications = input("Describe the goal modifications: ")
-                structured_feedback[key] = goal_modifications
-            elif key == "parameter_suggestions" and response.strip(): # If user provides input
-                structured_feedback[key] = response.strip()
-
-        self.human_feedback_for_next_stage = structured_feedback
+        except Exception as e:
+            logger.error(f"Error parsing human feedback with LLM: {e}")
+            # Fallback to a simple mechanism if the LLM call fails
+            self.human_feedback_for_next_stage = {"general_comments": feedback_text}
 
     def run(self, exec_callback, step_callback=None):
         """Run the experiment through generated stages"""
